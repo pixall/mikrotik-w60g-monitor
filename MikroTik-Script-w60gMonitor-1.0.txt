@@ -1,0 +1,84 @@
+:delay 30s
+
+#
+# w60g quality monitoring + bridge enabling/disabling
+# ---------------------------------------------------
+# (c) 2019, michal@rybarik.sk
+#
+# Version 1.0 (2019-04-07)
+#
+# Installation:
+#    /system schedule add name=w60gMonitor on-event="/system script run w60gMonitor" start-time=startup interval=0
+#
+# Runtime status display:
+#    :environment print
+#
+#--------------------------------------------------------------------------------
+
+# SETTINGS:
+
+# id of w60g interface to monitor
+:local w60gIface 0
+
+# name of bridge interface to disable/enable automatically
+:local bridgename "bridge"
+
+# minimum of successfull tests (500ms each) to enable bridge  (360 = 3 minutes)
+:local loopsokmin 360
+
+#--------------------------------------------------------------------------------
+
+# initialize global and local variables
+:global w60gConnected
+:global w60gRSSI
+:global w60gTxMCS 
+:global w60gTxErr
+:global w60gChanges 0
+:global w60gLoop 0
+:global w60gLoopsOK 0
+:global w60gOnline true
+
+:while ( true ) do={
+
+   # run monitor command and store results to global variables
+   /interface w60g monitor $w60gIface once do={
+      :global w60gConnected $"connected"
+      :global w60gTxMCS $"tx-mcs" 
+      :global w60gRSSI $"rssi" 
+      :global w60gTxErr $"tx-packet-error-rate"
+   }
+
+   :put "--- loop $w60gLoop" 
+   :put "  w60gOnline $w60gOnline"
+   :put "  w60gChanges $w60gChanges"
+   :put "  w60gLoopsOK $w60gLoopsOK"
+   :put "  w60gConnected $w60gConnected"
+   :put "  w60gRSSI $w60gRSSI"
+   :put "  w60gTxMCS $w60gTxMCS"
+   :put "  w60gTxErr $w60gTxErr"
+   :set w60gLoop ($w60gLoop+1)
+
+   # if current status is not good, set w60gLoopsOK=0, else increment w60gLoopsOK
+   :if ( $w60gConnected != true || $w60gRSSI < -80 || $w60gTxMCS < 4 ) do={ 
+      :put "  link status is BAD"
+      :set w60gLoopsOK 0
+   } else={ 
+      :put "  link status is OK" 
+      :set w60gLoopsOK ($w60gLoopsOK+1)
+   }
+
+   :if ( $w60gLoopsOK=0 && $w60gOnline=true ) do={
+      :put "!!! disabling bridge"
+      /interface bridge disable $bridgename
+      :set w60gOnline false
+   }
+
+   :if ( $w60gLoopsOK>=$loopsokmin && $w60gOnline=false ) do={
+      :put "!!! enabling bridge"
+      :set w60gOnline true
+       /interface bridge enable $bridgename
+      :set w60gChanges ($w60gChanges+1)
+   }
+
+   :delay 500ms
+}
